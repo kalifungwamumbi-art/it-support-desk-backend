@@ -1,0 +1,7 @@
+const fs=require('node:fs');const path=require('node:path');
+const read=name=>fs.readFileSync(path.join(__dirname,name),'utf8');
+// PostgreSQL is optional for persistent hosted storage; SQLite is the local default.
+let db,pool;
+async function init(){if(process.env.DATABASE_URL){const {Pool}=require('pg');pool=new Pool({connectionString:process.env.DATABASE_URL});const client=await pool.connect();try{await client.query('BEGIN');await client.query(read('schema.sql').replace('INTEGER PRIMARY KEY AUTOINCREMENT','SERIAL PRIMARY KEY'));await client.query('LOCK TABLE initialization IN EXCLUSIVE MODE');if(!(await client.query('SELECT id FROM initialization WHERE id=1')).rowCount){await client.query(read('seed.sql'));await client.query('INSERT INTO initialization VALUES(1)');}await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}}else{const {DatabaseSync}=require('node:sqlite');db=new DatabaseSync(process.env.SQLITE_PATH||path.join(__dirname,'records.sqlite'));db.exec('BEGIN');try{db.exec(read('schema.sql'));if(!db.prepare('SELECT id FROM initialization WHERE id=1').get()){db.exec(read('seed.sql'));db.exec('INSERT INTO initialization VALUES(1)');}db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}}}
+async function query(sql,params=[]){if(pool)return pool.query(sql,params);const ordered=[];const converted=sql.replace(/\$(\d+)/g,(_,n)=>{ordered.push(params[Number(n)-1]);return '?';});const rows=db.prepare(converted).all(...ordered);return {rows,rowCount:rows.length};}
+module.exports={init,query};

@@ -1,0 +1,10 @@
+const router=require('express').Router();const db=require('../db');
+const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next);
+function id(req){const raw=req.params.id;const n=Number(raw);if(!/^\d+$/.test(raw)||!Number.isSafeInteger(n)||n<1||n>2147483647)throw Object.assign(new Error('ID must be a positive whole number within database range.'),{status:400});return n;}
+function values(body){const result=[];for(const [k,min,max] of [['title',3,80],['category',2,40],['description',5,300],['status',1,20]]){if(typeof body?.[k]!=='string'||body[k].trim().length<min||body[k].trim().length>max)throw Object.assign(new Error(`${k} must have ${min} to ${max} characters.`),{status:400});result.push(body[k].trim());}if(!['Pending','In progress','Completed'].includes(result[3]))throw Object.assign(new Error('Invalid status.'),{status:400});return result;}
+function one(result,res,code=200){if(!result.rowCount)return res.status(404).json({message:'Record not found.'});res.status(code).json(result.rows[0]);}
+router.get('/',wrap(async(req,res)=>res.json((await db.query('SELECT * FROM records ORDER BY id')).rows)));
+router.get('/:id',wrap(async(req,res)=>one(await db.query('SELECT * FROM records WHERE id=$1',[id(req)]),res)));
+router.post('/',wrap(async(req,res)=>one(await db.query('INSERT INTO records(title,category,description,status) VALUES($1,$2,$3,$4) RETURNING *',values(req.body)),res,201)));
+router.put('/:id',wrap(async(req,res)=>one(await db.query('UPDATE records SET title=$1,category=$2,description=$3,status=$4 WHERE id=$5 RETURNING *',[...values(req.body),id(req)]),res)));
+router.delete('/:id',wrap(async(req,res)=>{const r=await db.query('DELETE FROM records WHERE id=$1 RETURNING id',[id(req)]);if(!r.rowCount)return res.status(404).json({message:'Record not found.'});res.json({message:'Record deleted.'});}));module.exports=router;
